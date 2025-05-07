@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Data Drive</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            background: #f1f3f4;
+        }
+
+        header {
+            background: white;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 20px;
+        }
+
+        button {
+            padding: 8px 14px;
+            margin-left: 10px;
+            background: #1a73e8;
+            border: none;
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #155db2;
+        }
+
+        #folderContainer {
+            padding: 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 20px;
+        }
+
+        .folder,
+        .file {
+            background: white;
+            padding: 15px;
+            text-align: center;
+            border-radius: 6px;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+            cursor: pointer;
+        }
+
+        .folder:hover,
+        .file:hover {
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+        }
+
+        .folder-icon,
+        .file-icon {
+            font-size: 36px;
+        }
+
+        .folder-icon {
+            color: #fbbc04;
+        }
+
+        .file-icon {
+            color: #34a853;
+        }
+
+        .item-name {
+            margin-top: 8px;
+            font-size: 14px;
+            word-wrap: break-word;
+        }
+
+        .back-btn {
+            margin-left: 20px;
+            cursor: pointer;
+            color: #1a73e8;
+        }
+
+        .back-btn:hover {
+            text-decoration: underline;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 90%;
+            max-height: 90%;
+            overflow: auto;
+        }
+
+        .modal-content img {
+            max-width: 100%;
+            max-height: 80vh;
+        }
+
+        .close-btn {
+            float: right;
+            cursor: pointer;
+            color: red;
+            font-size: 20px;
+        }
+
+        #loader {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.4);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .spinner {
+            border: 8px solid #f3f3f3;
+            border-top: 8px solid #1a73e8;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <h1 id="pathTitle">My Drive</h1>
+        <div>
+            <span id="backBtn" class="back-btn" style="display:none;">← Back</span>
+            <button id="createBtn">Create Folder</button>
+            <button id="uploadBtn">Upload File</button>
+            <button id="lgout">Log out</button>
+            <input type="file" id="fileInput" multiple />
+        </div>
+    </header>
+
+    <div id="folderContainer"></div>
+
+    <div class="modal" id="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeModal()">×</span>
+            <div id="modalBody"></div>
+        </div>
+    </div>
+
+    <div id="loader">
+        <div class="spinner"></div>
+    </div>
+
+    <script>
+        const baseApiUrl = 'http://localhost:8000/'
+        let currentPath = "root";
+        let structure = JSON.parse(localStorage.getItem("driveDataPreview")) || {
+            root: { folders: [], files: [] }
+        };
+
+        function saveData() {
+            localStorage.setItem("driveDataPreview", JSON.stringify(structure));
+        }
+
+        function renderItems() {
+            const container = document.getElementById("folderContainer");
+            container.innerHTML = "";
+
+            const { folders = [], files = [] } = structure[currentPath] || {};
+
+            folders.forEach(folder => {
+                const div = document.createElement("div");
+                div.className = "folder";
+                div.innerHTML = `<div class="folder-icon">📁</div><div class="item-name">${folder}</div>`;
+                div.ondblclick = () => {
+                    currentPath += "/" + folder;
+                    if (!structure[currentPath]) structure[currentPath] = { folders: [], files: [] };
+                    saveData(); renderItems(); updatePath();
+                };
+                container.appendChild(div);
+            });
+
+
+            files.forEach(file => {
+                const div = document.createElement("div");
+                div.className = "file";
+                div.innerHTML = `
+        <div class="file-icon">📄</div>
+        <div class="item-name">${file.name}</div>
+        <button style="margin-top:10px; background:red;" onclick="removeFile(${file.id})">Remove</button>
+    `;
+
+                div.onclick = (e) => {
+                    if (e.target.tagName !== "BUTTON") previewFile(file);
+                };
+                container.appendChild(div);
+            });
+        }
+
+        function updatePath() {
+            document.getElementById("pathTitle").innerText = currentPath === "root" ? "My Drive" : currentPath.replace("root/", "");
+            document.getElementById("backBtn").style.display = currentPath !== "root" ? "inline" : "none";
+        }
+
+        document.getElementById("createBtn").onclick = () => {
+            let name = prompt("Enter folder name:");
+            if (!name) return;
+            let folderData = structure[currentPath];
+            if (folderData.folders.includes(name)) return alert("Folder already exists!");
+            folderData.folders.push(name);
+            structure[currentPath + "/" + name] = { folders: [], files: [] };
+            saveData(); renderItems();
+        };
+
+        document.getElementById("backBtn").onclick = () => {
+            let parts = currentPath.split("/");
+            parts.pop(); currentPath = parts.join("/");
+            renderItems(); updatePath();
+        };
+
+        document.getElementById("uploadBtn").onclick = () => {
+            document.getElementById("fileInput").click();
+        };
+
+        document.getElementById("fileInput").addEventListener("change", async (e) => {
+            const loader = document.getElementById("loader");
+            loader.style.display = "flex";
+
+            const files = Array.from(e.target.files);
+
+            for (let file of files) {
+                const formData = new FormData();
+                formData.append("file", file);
+
+                try {
+                    const res = await fetch(baseApiUrl + "upload", {
+                        method: "POST",
+                        body: formData,
+                    });
+
+                    if (res.ok) {
+                        const data = await res.json();
+
+                        const folderData = structure[currentPath];
+
+                        folderData.files.push({
+                            id: Date.now() + Math.random(),
+                            name: data.name,
+                            type: data.content_type,
+                            content: `${baseApiUrl}${data.file}`,
+                        });
+                        saveData(); renderItems();
+                    } else {
+                        alert("Upload failed");
+                    }
+                } catch (error) {
+                    alert("Upload error: " + error.message);
+                }
+            }
+
+            loader.style.display = "none";
+        });
+
+        function previewFile(file) {
+            const modal = document.getElementById("modal");
+            const modalBody = document.getElementById("modalBody");
+
+            modalBody.innerHTML = "";
+
+            const fileUrl = `${file.content}`;
+
+            if (file.type === "application/pdf") {
+                modalBody.innerHTML = `
+          <iframe src="${fileUrl}" width="100%" height="500px" style="border:none;"></iframe>
+        `;
+            } else if (file.type.startsWith("image/")) {
+                modalBody.innerHTML = `
+          <img src="${fileUrl}" style="max-width: 100%; max-height: 100vh;" />
+        `;
+            } else {
+                modalBody.innerHTML = `
+          <p style="font-family: Arial; font-size: 16px; padding: 20px;">No preview available for this file type.</p>
+        `;
+            }
+
+            modal.style.display = "flex";
+        }
+
+        function closeModal() {
+            document.getElementById("modal").style.display = "none";
+        }
+
+
+
+        function removeFile(fileId) {
+            const folderData = structure[currentPath];
+            folderData.files = folderData.files.filter(file => file.id !== fileId);
+            saveData();
+            renderItems();
+        }
+
+
+        document.getElementById("lgout").onclick = () => {
+            window.location.href = baseApiUrl + "login";
+        };
+
+        renderItems();
+        updatePath();
+    </script>
+</body>
+
+</html>
